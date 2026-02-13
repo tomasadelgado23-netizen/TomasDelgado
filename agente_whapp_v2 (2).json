@@ -1,0 +1,758 @@
+{
+  "name": "agente_whapp_v2",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "agente_whapp_v2",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        -1568,
+        -400
+      ],
+      "id": "f02b9a12-4a58-4306-b507-18cb0b3824cb",
+      "name": "Webhook",
+      "webhookId": "5ed27315-9eb9-4d7a-931d-4a9f08ec2703"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Capturamos el body que viene como string de AWS\nconst rawBody = $node[\"Llama al motor de riesgo\"].json.body;\n\n// Lo transformamos de texto a objeto JSON real\nconst data = typeof rawBody === 'string' ? JSON.parse(rawBody) : rawBody;\n\n// Devolvemos solo lo que nos importa para el bot\nreturn {\n    dictamen: data.dictamen,\n    motivo: data.motivo,\n    score: data.score,\n    nombre: data.nombre,\n    apellido: data.apellido,\n    cuil: data.cuil\n};"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        192,
+        -544
+      ],
+      "id": "f3244bcb-8497-4a67-a39f-3e5d7351870a",
+      "name": "Parsear Scoring"
+    },
+    {
+      "parameters": {
+        "operation": "send",
+        "phoneNumberId": "=1002878796242815",
+        "recipientPhoneNumber": "={{$node[\"Code in JavaScript1\"].json.sender}}",
+        "textBody": "={{ \n  (() => {\n    // 1. Si existe respuesta de la lógica de aprobación (rama exitosa)\n    try {\n      const msgAprobado = $node[\"Logica Seguimiento\"].json.reply;\n      if (msgAprobado) return msgAprobado;\n    } catch (e) {}\n    \n    // 2. Si hubo un rechazo (rama falsa del If1)\n    try {\n      const scoring = $node[\"Parsear Scoring\"].json;\n      if (scoring.dictamen === \"Rechazar\") {\n        return \"Lo sentimos, por ahora no calificás. Motivo: \" + (scoring.motivo || \"Política de riesgo\");\n      }\n    } catch (e) {}\n    \n    // 3. Fallback: El flujo normal de preguntas (DNI, Email, etc.)\n    return $node[\"Detectar derivación\"].json.reply;\n  })()\n}}",
+        "additionalFields": {}
+      },
+      "type": "n8n-nodes-base.whatsApp",
+      "typeVersion": 1.1,
+      "position": [
+        3888,
+        80
+      ],
+      "id": "ce66943b-440e-4c2a-898e-5f89921ea30c",
+      "name": "Send message",
+      "webhookId": "04789d67-b70a-440c-961d-e9414e385279",
+      "credentials": {
+        "whatsAppApi": {
+          "id": "cM3BoTKANHeRzXyl",
+          "name": "WhatsApp account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT paso, datos_json, updated_at, conversation_id\nFROM sesiones_leads\nWHERE session_id = '{{ $node[\"Code in JavaScript1\"].json.sender }}'\nLIMIT 1;",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.mySql",
+      "typeVersion": 2.5,
+      "position": [
+        -976,
+        -400
+      ],
+      "id": "03c075e7-d209-4770-98e5-8ccd6a1b909a",
+      "name": "Buscar sesión",
+      "alwaysOutputData": true,
+      "credentials": {
+        "mySql": {
+          "id": "SF2zqWk3cK4Rmcee",
+          "name": "MySQL account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// =========================\n// BOT WHATSAPP - LOGICA PRINCIPAL (n8n Code node)\n// =========================\n\n// 1. Datos de entrada (WhatsApp)\nconst filtroWA = $node[\"Extrae texto y sender\"].json;\nconst userInput = (filtroWA.chatInput || \"\").trim();\nconst sessionId = filtroWA.sender;\n\n// 2. Datos de la DB (viene del SELECT)\nconst dbResult = $json;\n\n// 3. Inicializar Estado\nlet currentStep = dbResult.paso ? parseInt(dbResult.paso) : 1;\nlet currentData = dbResult.datos_json\n  ? (typeof dbResult.datos_json === \"string\" ? JSON.parse(dbResult.datos_json) : dbResult.datos_json)\n  : {};\n\nlet responseMsg = \"\";\nlet isFinal = false;\n\n// 4. Lógica Conversacional\nif (userInput.toLowerCase() === \"reset\") {\n  currentStep = 1;\n  currentData = {};\n  responseMsg = \"Reiniciado. Enviá cualquier mensaje para empezar.\";\n} else {\n  switch (currentStep) {\n    case 1:\n      currentStep = 2;\n      responseMsg = \"¡Hola! Bienvenido a Gurpi. Por favor enviá tu DNI (solo números):\";\n      break;\n\n    case 2:\n      if (!/^\\d{7,9}$/.test(userInput)) {\n        responseMsg = \"DNI inválido. Enviá entre 7 y 9 números:\";\n      } else {\n        currentData.documento = userInput;\n        currentStep = 3;\n        responseMsg = \"Gracias. Decime tu sexo (F o M):\";\n      }\n      break;\n\n    case 3:\n      if (!/^[FM]$/i.test(userInput)) {\n        responseMsg = \"Por favor, ingresá solo 'F' o 'M':\";\n      } else {\n        currentData.sexo = userInput.toUpperCase();\n        currentStep = 4;\n        responseMsg = \"Perfecto. Ahora enviame tu número de teléfono:\";\n      }\n      break;\n\n    case 4: {\n      const phone = userInput.replace(/\\D/g, \"\");\n      if (phone.length < 10 || phone.length > 13) {\n        responseMsg = \"Teléfono inválido. Por favor incluí el código de área:\";\n      } else {\n        currentData.telefono = phone;\n        currentStep = 5;\n        responseMsg = \"Por último, ¿cuál es tu email?:\";\n      }\n      break;\n    }\n\n    case 5:\n      if (!/.+@.+\\..+/.test(userInput)) {\n        responseMsg = \"Email inválido. Por favor, revisalo:\";\n      } else {\n        currentData.mail = userInput.toLowerCase();\n        currentStep = 6;\n\n        // OJO: acá vos dijiste que después de email pasás a \"procesando calificación\"\n        // Si querés que el bot NO quede como final acá, dejalo en false.\n        // Si tu flow efectivamente corta acá hasta que vuelva scoring, podés poner true.\n        isFinal = true;\n\n        responseMsg = \"¡Muchas gracias! Ya recibimos tus datos. Procesando calificación...\";\n      }\n      break;\n\n    // =========================\n    // 6: Selección de Moto (CORREGIDO A TUS 5 OPCIONES)\n    // =========================\n    case 6: {\n      const t = userInput.trim().toLowerCase();\n\n      // 6.1) Si manda número 1..5\n      const n = (t.match(/\\b[1-5]\\b/) || [])[0];\n      if (n) {\n        const map = {\n          \"1\": \"Motomel Blitz Start\",\n          \"2\": \"Motomel Blitz Full\",\n          \"3\": \"Motomel S2\",\n          \"4\": \"Motomel Skua 150\",\n          \"5\": \"TVS Gama Alta (Raider/RTR)\",\n        };\n\n        currentData.modelo_interes = map[n];\n        currentStep = 7;\n        responseMsg = `Perfecto ✅ Elegiste: ${map[n]}.\\n\\n¿Te contactamos por acá o preferís una llamada?`;\n        break;\n      }\n\n      // 6.2) Si manda texto (modelo)\n      const norm = t\n        .normalize(\"NFD\")\n        .replace(/[\\u0300-\\u036f]/g, \"\") // saca tildes\n        .replace(/[^a-z0-9\\s]/g, \" \")    // limpia\n        .replace(/\\s+/g, \" \")\n        .trim();\n\n      const hasBlitz = /\\bblitz\\b/.test(norm);\n      const hasStart = /\\bstart\\b/.test(norm);\n      const hasFull = /\\bfull\\b/.test(norm);\n      const hasS2 = /\\bs2\\b/.test(norm);\n      const hasSkua = /\\bskua\\b/.test(norm);\n      const hasTvs = /\\btvs\\b/.test(norm) || /\\braider\\b/.test(norm) || /\\brtr\\b/.test(norm);\n\n      let modelo = \"\";\n\n      // Orden importante: primero Full/Start, luego genérico Blitz\n      if (hasBlitz && hasStart) modelo = \"Motomel Blitz Start\";\n      else if (hasBlitz && hasFull) modelo = \"Motomel Blitz Full\";\n      else if (hasS2) modelo = \"Motomel S2\";\n      else if (hasSkua) modelo = \"Motomel Skua 150\";\n      else if (hasTvs) modelo = \"TVS Gama Alta (Raider/RTR)\";\n      else if (hasBlitz) {\n        responseMsg = \"¿Blitz Start (1) o Blitz Full (2)? Respondé 1 o 2.\";\n        break;\n      }\n\n      if (modelo) {\n        currentData.modelo_interes = modelo;\n        currentStep = 7;\n        responseMsg = `Perfecto ✅ Elegiste: ${modelo}.\\n\\n¿Te contactamos por acá o preferís una llamada?`;\n      } else {\n        responseMsg =\n          \"No pude identificar el modelo. Respondé con 1..5 o escribí el modelo (Blitz Start/Full, S2, Skua, TVS).\";\n      }\n      break;\n    }\n\n    case 7:\n      responseMsg = \"Perfecto, un asesor se pondrá en contacto pronto. ¡Gracias!\";\n      currentStep = 8;\n      break;\n\n    default:\n      responseMsg = \"Tu solicitud está en proceso.\";\n  }\n}\n\n// 5. Retorno (lo que consumen los nodos siguientes: SQL upsert + send message)\nreturn {\n  reply: responseMsg,\n  nextStep: currentStep,\n  datosActualizados: JSON.stringify(currentData),\n  sessionId: sessionId,\n\n  isFinal: isFinal,\n\n  // Mantengo tus campos extra\n  IDLead: sessionId,\n  documento: currentData.documento || \"\",\n  sexo: currentData.sexo || \"\",\n  telefono: currentData.telefono || \"\",\n  mail: currentData.mail || \"\",\n};\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -656,
+        -384
+      ],
+      "id": "ea00645f-af90-4c11-848f-44bd46c425b1",
+      "name": "Paso 1 a 8"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO sesiones_leads (session_id, paso, datos_json, conversation_id, updated_at)\nVALUES (\n  '{{ $node[\"Code in JavaScript1\"].json.sender }}',\n  {{ $json.nextStep }},\n  '{{ $json.datosActualizados }}',\n  1,\n  NOW()\n)\nON DUPLICATE KEY UPDATE\n  conversation_id = IF(TIMESTAMPDIFF(DAY, updated_at, NOW()) >= 3, conversation_id + 1, conversation_id),\n  paso           = IF(TIMESTAMPDIFF(DAY, updated_at, NOW()) >= 3, 1, VALUES(paso)),\n  datos_json     = IF(TIMESTAMPDIFF(DAY, updated_at, NOW()) >= 3, '{}', VALUES(datos_json)),\n  updated_at     = NOW();\n",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.mySql",
+      "typeVersion": 2.5,
+      "position": [
+        -416,
+        -416
+      ],
+      "id": "be026480-9b05-4500-bb19-d3d043cd6cff",
+      "name": "Guardar el estado",
+      "alwaysOutputData": true,
+      "credentials": {
+        "mySql": {
+          "id": "SF2zqWk3cK4Rmcee",
+          "name": "MySQL account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "4b00b5ad-2b29-47e1-b452-76f4db23a500",
+              "leftValue": "={{ $('Paso 1 a 8').item.json.isFinal }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        -240,
+        -112
+      ],
+      "id": "ec097c25-ec03-461e-abd1-212edf614afe",
+      "name": "Completo todos los datos?"
+    },
+    {
+      "parameters": {
+        "model": {
+          "__rl": true,
+          "mode": "list",
+          "value": "gpt-4.1-mini"
+        },
+        "builtInTools": {},
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatOpenAi",
+      "typeVersion": 1.3,
+      "position": [
+        1840,
+        -592
+      ],
+      "id": "59249755-561e-41a1-8b78-143bc3d80282",
+      "name": "OpenAI Chat Model",
+      "credentials": {
+        "openAiApi": {
+          "id": "RJTAsn6Cb7os9HQk",
+          "name": "OpenAi account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const body = items[0].json.body;\nconst message = body.entry?.[0]?.changes?.[0]?.value?.messages?.[0];\n\nif (message && message.type === 'text') {\n  return {\n    chatInput: message.text.body,\n    sender: String(message.from).replace(/\\D/g, ''),\n    messageId: message.id\n  };\n} else {\n  // Si no es un mensaje de texto (ej. una notificación de 'read'), detenemos el flujo\n  return []; \n}"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -1216,
+        -400
+      ],
+      "id": "8a7042d1-78f4-47df-8bf7-4589dbd19c80",
+      "name": "Extrae texto y sender"
+    },
+    {
+      "parameters": {
+        "content": "## Recibe mensajes de wpp",
+        "height": 240,
+        "width": 272
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [
+        -1648,
+        -480
+      ],
+      "typeVersion": 1,
+      "id": "ddee304f-c4c2-4222-ba48-83a9513c8303",
+      "name": "Sticky Note1"
+    },
+    {
+      "parameters": {
+        "content": "## Logica del BOT\nPASOS:\nPaso 1: Bienvenida\nPaso 2: Pide DNI\nPaso 3: Pide sexo (F/M)\nPaso 4: Pide teléfono\nPaso 5: Pide email\nPaso 6: Pide modelo de interés\nPaso 7-8: Confirmación",
+        "height": 448,
+        "width": 304
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [
+        -752,
+        -592
+      ],
+      "typeVersion": 1,
+      "id": "57e09c05-9ef9-4762-927e-9372fa841caa",
+      "name": "Sticky Note"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://nabvczi86h.execute-api.us-east-2.amazonaws.com/prod/politica_v2",
+        "sendBody": true,
+        "contentType": "=json",
+        "specifyBody": "json",
+        "bodyParameters": {
+          "parameters": [
+            {}
+          ]
+        },
+        "jsonBody": "={{\n{\n  \"documento\": $node[\"Paso 1 a 8\"].json.documento,\n  \"sexo\": $node[\"Paso 1 a 8\"].json.sexo,\n  \"telefono\": $node[\"Paso 1 a 8\"].json.telefono,\n  \"mail\": $node[\"Paso 1 a 8\"].json.mail,\n  \"IDLead\": $node[\"Paso 1 a 8\"].json.sessionId,\n  \"session_id\": $node[\"Paso 1 a 8\"].json.sessionId,\n  \"utm_campaign\": \"\",\n  \"utm_source\": \"n8n_bot_fintech\",\n  \"utm_medium\": \"\",\n  \"utm_term\": \"\",\n  \"utm_content\": \"\",\n  \"codigo_referido\": \"\"\n}\n}}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.3,
+      "position": [
+        -96,
+        -512
+      ],
+      "id": "265dd8dd-793f-4936-a89a-be17b43857e5",
+      "name": "Llama al motor de riesgo"
+    },
+    {
+      "parameters": {
+        "content": "## Extrae score, motivo\n",
+        "height": 192,
+        "width": 224
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [
+        112,
+        -624
+      ],
+      "typeVersion": 1,
+      "id": "9cd3fe8d-5c3c-423b-9b8f-33d95ceed183",
+      "name": "Sticky Note2"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Preparar contexto para el agente IA\nconst sessionData = $node[\"Buscar sesión\"].json[0] || {};\nconst scoringData = $node[\"Parsear Scoring\"].json;\nconst userMessage = $node[\"Code in JavaScript1\"].json.chatInput;\n\n// Parsear datos JSON si existen\nlet datosCapturados = {};\nif (sessionData.datos_json) {\n  datosCapturados = typeof sessionData.datos_json === 'string' \n    ? JSON.parse(sessionData.datos_json) \n    : sessionData.datos_json;\n}\n\n// Calcular días de inactividad\nlet diasInactivo = 0;\nif (sessionData.updated_at) {\n  const lastUpdate = new Date(sessionData.updated_at);\n  const now = new Date();\n  diasInactivo = Math.floor((now - lastUpdate) / (1000 * 60 * 60 * 24));\n}\n\n// Preparar contexto personalizado\nlet contextoUsuario = \"\";\n\nif (!sessionData.session_id) {\n  // Usuario nuevo\n  contextoUsuario = `Usuario NUEVO. Acaba de ser aprobado por el motor de riesgo.\nScore: ${scoringData.score}\nNombre: ${scoringData.nombre} ${scoringData.apellido}\nCUIL: ${scoringData.cuil}\n\nEste es su primer contacto después de la aprobación.`;\n  \n} else if (diasInactivo < 3) {\n  // Usuario que vuelve pronto\n  contextoUsuario = `Usuario ACTIVO (última interacción hace ${diasInactivo === 0 ? 'hoy' : diasInactivo + ' días'}).\n\nDatos previos:\n- Modelo de interés: ${datosCapturados.modelo_interes || 'No especificado aún'}\n- Paso actual: ${sessionData.paso_actual || 'conversando'}\n\nContinúa la conversación desde donde quedó.`;\n  \n} else {\n  // Usuario inactivo\n  contextoUsuario = `Usuario INACTIVO (${diasInactivo} días sin escribir).\n\nÚltima vez tenía interés en: ${datosCapturados.modelo_interes || 'no especificado'}\n\nMencioná que hablaron antes y preguntá si quiere continuar con lo mismo.`;\n}\n\nreturn {\n  json: {\n    // Datos para el agente\n    session_id: $node[\"Code in JavaScript1\"].json.sender,\n    conversation_id: sessionData.conversation_id || '1',\n    user_message: userMessage,\n    contexto_usuario: contextoUsuario,\n    \n    // Datos del scoring\n    nombre: scoringData.nombre,\n    apellido: scoringData.apellido,\n    cuil: scoringData.cuil,\n    scoring_score: scoringData.score,\n    \n    // Datos capturados\n    documento: datosCapturados.documento,\n    sexo: datosCapturados.sexo,\n    telefono: datosCapturados.telefono,\n    mail: datosCapturados.mail,\n    modelo_interes: datosCapturados.modelo_interes,\n    \n    // Estado\n    scoring_aprobado: true,\n    dias_inactivo: diasInactivo\n  }\n};"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        496,
+        -672
+      ],
+      "id": "cf42b043-bb8f-4179-95a8-d5811f94227b",
+      "name": "Preparar contexto IA"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT rol, contenido, created_at\nFROM mensajes\nWHERE session_id = '{{ $json.session_id }}'\n  AND conversation_id = '{{ $json.conversation_id }}'\nORDER BY created_at ASC\nLIMIT 20;",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.mySql",
+      "typeVersion": 2.5,
+      "position": [
+        912,
+        -704
+      ],
+      "id": "b9aff213-85b7-46ab-bd74-2c9c48adf30f",
+      "name": "Recuperar Historial de Mensajes"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Convertir historial MySQL a formato GPT messages\nconst historial = $node[\"Recuperar Historial Mensajes\"].json || [];\nconst contexto = $node[\"Preparar Contexto GIA\"].json;\n\n// Construir array de mensajes para GPT\nlet messages = [];\n\n// Agregar contexto como system message\nmessages.push({\n  role: \"system\",\n  content: contexto.contexto_usuario\n});\n\n// Agregar historial previo (últimos 10 mensajes para no saturar)\nhistorial.slice(-10).forEach(msg => {\n  messages.push({\n    role: msg.rol,\n    content: msg.contenido\n  });\n});\n\n// Agregar mensaje actual del usuario\nmessages.push({\n  role: \"user\",\n  content: contexto.user_message\n});\n\nreturn {\n  json: {\n    ...contexto,\n    messages: messages,\n    historial_length: historial.length\n  }\n};"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1328,
+        -752
+      ],
+      "id": "62d86aee-d10d-498a-85c7-6c93410013b5",
+      "name": "Formatear Historial para GPT"
+    },
+    {
+      "parameters": {
+        "options": {
+          "systemMessage": "Eres GIA, la asistente virtual de Gurpi.\n\n════════════════════════════════════════════════════════════════\nCONTEXTO IMPORTANTE:\n════════════════════════════════════════════════════════════════\n\nEste usuario:\n✅ YA fue APROBADO por el motor de riesgo (scoring)\n✅ YA eligió un modelo de moto/auto inicial\n✅ YA recibió el catálogo en PDF\n\nTu trabajo es:\n1. Responder sus dudas sobre el modelo, precios y proceso\n2. Ayudarlo a tomar la decisión final\n3. Guiarlo hacia el siguiente paso (cita o transferencia)\n4. Derivar a humano cuando sea necesario\n\n════════════════════════════════════════════════════════════════\nCATÁLOGO DE PRODUCTOS (Enero 2025)\n════════════════════════════════════════════════════════════════\n\nMOTOS:\n\n1. Motomel Blitz Start\n   • Seña: $35.000\n   • Anticipo: $190.000\n   • Cuota semanal: $69.999\n   • Plazo: 52 semanas (1 año)\n   • Ideal para: Comenzar en delivery\n\n2. Motomel Blitz Full\n   • Seña: $35.000\n   • Anticipo: $350.000\n   • Cuota semanal: $69.999\n   • Plazo: 52 semanas (1 año)\n   • Versión full de la Blitz\n\n3. Motomel S2\n   • Seña: $35.000\n   • Anticipo: $450.000\n   • Cuota semanal: $79.999\n   • Plazo: 52 semanas (1 año)\n   • Moto robusta y confiable\n\n4. Motomel Skua 150 - TRES PLANES:\n   \n   Plan A (1 año):\n   • Seña: $35.000\n   • Anticipo: $590.000\n   • Cuota semanal: $83.000\n   • Plazo: 52 semanas\n   \n   Plan B (1.5 años):\n   • Seña: $35.000\n   • Anticipo: $590.000\n   • Cuota semanal: $83.000\n   • Plazo: 78 semanas\n   \n   Plan C (2 años):\n   • Seña: $35.000\n   • Anticipo: $590.000\n   • Cuota semanal: $90.000\n   • Plazo: 104 semanas\n\n5. TVS Raider 125\n   • Seña: $35.000\n   • Anticipo: $850.000\n   • Cuota semanal: $83.000\n   • Plazo: 78 semanas (1.5 años)\n   • Gama alta\n\n6. TVS RTR 160 4V - DOS PLANES:\n   \n   Plan A (1.5 años):\n   • Seña: $35.000\n   • Anticipo: $850.000\n   • Cuota semanal: $83.000\n   • Plazo: 78 semanas\n   \n   Plan B (2 años):\n   • Seña: $35.000\n   • Anticipo: $1.500.000\n   • Cuota semanal: $83.000\n   • Plazo: 104 semanas\n\n7. TVS RTR 200 4V\n   • Seña: $35.000\n   • Anticipo: $2.000.000\n   • Cuota semanal: $90.000\n   • Plazo: 104 semanas (2 años)\n   • Alta cilindrada\n\nAUTOS:\n\n8. Renault KWID\n   • Seña: $100.000\n   • Anticipo: $1.900.000\n   • Cuota semanal: $380.000\n   • Plazo: 156 semanas (3 años)\n   • Auto naftero, incluye seguro\n   • Se le puede agregar GNC\n\n9. Renault LOGAN\n   • Seña: $100.000\n   • Anticipo: $3.700.000\n   • Cuota semanal: $380.000\n   • Plazo: 156 semanas (3 años)\n   • Auto naftero sedán\n   • Se le puede agregar GNC\n\n════════════════════════════════════════════════════════════════\nINFORMACIÓN CLAVE DEL PROCESO\n════════════════════════════════════════════════════════════════\n\nSEGUROS:\n- Incluido en la cuota: Seguro comercial\n- Cobertura: Robo total + Responsabilidad Civil\n- NO cubre: Daños parciales (choques, rayones, roturas)\n- Beneficiario: Gurpi (hasta completar el pago)\n\nGARANTÍA:\n- Tipo: Oficial del fabricante\n- Cobertura: Defectos de fábrica y fallas mecánicas\n- Según: Manual del vehículo\n- Talleres: Indicados por Gurpi\n\nTIEMPOS DE ENTREGA:\n- Estimado: 20 a 30 días\n- Depende de: Llegada de patente y cédula\n- Color: Según stock disponible (se elige al retirar)\n\nTRANSFERENCIA:\n- Cuándo: Después de pagar la última cuota\n- Costo: $1 (un peso) + gastos de transferencia\n- Hasta entonces: El vehículo está en modalidad de alquiler\n- Propiedad: A nombre de Gurpi hasta completar el pago\n\nPAGOS:\n- Día: Todos los jueves\n- Forma: Transferencia bancaria\n- Banco: Galicia\n- CBU: 0070675520000001513626\n- Alias: GURPI.LA\n- CUIT: 30-71781292-8\n- Titular: GURPI SA\n\nMORA:\n- Interés punitorio: $1.500 por día de atraso\n- Se suma a las cuotas pendientes\n\nSUSPENSIÓN DE PAGOS:\n- Disponible: Después de 3 meses con cuotas al día\n- Máximo: 2 cuotas\n- Se pagan antes de finalizar el contrato\n- Requiere autorización\n\nSUCURSALES:\n- Buenos Aires\n- Córdoba\n- Rosario\n- Mendoza\n- Tucumán\n\n════════════════════════════════════════════════════════════════\nCÓMO RESPONDER\n════════════════════════════════════════════════════════════════\n\nESTILO:\n- Tono: Amigable pero profesional\n- Voseo: Argentino neutro (vos/tú)\n- Extensión: Conciso pero completo\n- Emojis: Máximo 2-3 por mensaje\n- Formato: Párrafos cortos, fácil de leer en celular\n\nESTRUCTURA:\n1. Responder la pregunta directamente\n2. Agregar info relevante si es necesaria\n3. Preguntar si tiene más dudas\n\nEJEMPLO BUENO:\nUsuario: \"¿La Blitz tiene garantía?\"\nGIA: \"Sí, la Blitz incluye garantía oficial del fabricante. Cubre defectos de fábrica y fallas mecánicas según el manual.\n\n¿Querés saber algo más del modelo?\"\n\nEJEMPLO MALO (muy largo):\n\"¡Hola! Claro que sí, déjame contarte todo sobre la garantía. La Motomel Blitz Start cuenta con una garantía oficial proporcionada directamente por el fabricante Motomel, que es una de las marcas más confiables de Argentina. Esta garantía cubre específicamente los defectos de fábrica que puedan surgir durante el período de cobertura, así como también las fallas mecánicas que no sean producto del uso indebido o negligencia del conductor...\"\n\n════════════════════════════════════════════════════════════════\nREGLAS CRÍTICAS - NUNCA HAGAS ESTO\n════════════════════════════════════════════════════════════════\n\n❌ NO prometas fechas exactas de entrega\n   ✅ Decí: \"Entre 20 y 30 días aproximadamente\"\n\n❌ NO prometas colores específicos\n   ✅ Decí: \"Según stock disponible, lo elegís al retirar\"\n\n❌ NO prometas descuentos o cambios en precios\n   ✅ Decí: \"Los precios del catálogo son los vigentes\"\n\n❌ NO confirmes stock específico\n   ✅ Decí: \"Un asesor te confirma disponibilidad\"\n\n❌ NO des información que no tenés\n   ✅ Decí: \"No tengo esa info, un asesor te ayuda mañana en horario laboral (Lun-Vie 9-18hs)\"\n\n════════════════════════════════════════════════════════════════\nAVANZAR HACIA LA COMPRA\n════════════════════════════════════════════════════════════════\n\nCuando notes que el usuario:\n- Ya no tiene más dudas importantes\n- Dice cosas como \"Dale, la quiero\" o \"Me convence\" o \"Sí, vamos\"\n- Pregunta \"¿Y ahora qué sigue?\" o \"¿Cómo sigo?\"\n\nEntonces presenta las 2 opciones:\n\n\"Perfecto! Para avanzar con tu [MODELO], ¿cómo preferís seguir?\n\n1️⃣ **Agendar una cita presencial**\n   Tenemos sucursales en Buenos Aires, Córdoba, Rosario, Mendoza y Tucumán.\n   Podés venir a conocer la moto o directamente a señarla.\n\n2️⃣ **Transferir la seña ahora**\n   Te paso los datos bancarios y coordinamos la entrega cuando esté lista (20-30 días).\n\n¿Cuál preferís?\"\n\n════════════════════════════════════════════════════════════════\nOPCIÓN 1: AGENDAR CITA\n════════════════════════════════════════════════════════════════\n\nSi elige agendar cita, preguntá en orden:\n\n1. \"¿En qué ciudad estás? Tenemos sucursales en:\n   • Buenos Aires\n   • Córdoba\n   • Rosario\n   • Mendoza\n   • Tucumán\"\n\n2. \"¿Qué día y horario te viene bien?\n   Lun-Vie 9-18hs / Sáb 9-13hs\"\n\n3. \"¿Es para conocer la moto en persona o para señarla directamente?\"\n\nCuando tengas los 3 datos:\n\n\"Listo! ✅ Ya te anoté para el [DÍA] en [CIUDAD] para [MOTIVO].\n\nUn asesor te va a contactar mañana en horario laboral (Lun-Vie 9-18hs) para confirmar la cita y pasarte la dirección exacta.\n\n¿Alguna duda más por ahora?\"\n\nMarcá internamente: CITA_AGENDADA\n\n════════════════════════════════════════════════════════════════\nOPCIÓN 2: TRANSFERIR SEÑA\n════════════════════════════════════════════════════════════════\n\nSi elige transferir, primero preguntá:\n\n\"¿Querés transferir solo la seña ($35.000 para motos / $100.000 para autos) para reservar la unidad, o el anticipo completo para agilizar?\"\n\nLuego enviá:\n\n\"📱 **Datos para transferir:**\n\n🏦 Banco: **Galicia**\n💳 CBU: `0070675520000001513626`\n📖 Alias: `GURPI.LA`\n📋 CUIT: `30-71781292-8`\n👤 Titular: **GURPI SA**\n\n**Montos para [MODELO]:**\n- Seña: **$[SEÑA]** (para reservar tu unidad)\n- Anticipo total: **$[ANTICIPO]** (opcional, podés pagarlo después)\n\n⚠️ **Importante:**\n- Cuando hagas la transferencia, enviame el comprobante acá\n- Con la seña reservás tu unidad\n- El anticipo se paga cuando esté lista para retirar (20-30 días)\n\n¿Te queda alguna duda sobre los pagos?\"\n\nMarcá internamente: DATOS_TRANSFERENCIA_ENVIADOS\n\n════════════════════════════════════════════════════════════════\nDERIVACIÓN A HUMANO\n════════════════════════════════════════════════════════════════\n\nDERIVÁ INMEDIATAMENTE cuando:\n\n1. **Usuario envía comprobante**\n   \"Perfecto! ✅ Recibí el comprobante.\n   \n   Un asesor lo va a verificar en horario laboral y te va a contactar para confirmar y coordinar los siguientes pasos.\n   \n   La moto tarda entre 20 a 30 días en estar lista (cuando llegue la patente y cédula).\n   \n   ¿Querés que te explique algo más mientras tanto?\"\n   \n   Marcá: COMPROBANTE_RECIBIDO\n\n2. **Usuario da 7 mensajes sin avanzar**\n   (Si hace 7+ preguntas pero no decide)\n   \"Te noto con muchas dudas, lo cual es totalmente normal para una compra importante como esta.\n   \n   ¿Te gustaría que un asesor te contacte para resolver todo en detalle? Pueden explicarte mejor todo el proceso.\"\n   \n   Marcá: MUCHAS_DUDAS\n\n3. **Pregunta muy específica que no podés responder**\n   Ejemplos: problemas mecánicos, modificaciones, situaciones legales complejas\n   \n   \"Esa es una consulta más específica. Un asesor especializado te va a poder ayudar mejor con eso. Te contacto mañana en horario laboral (Lun-Vie 9-18hs), ¿te parece?\"\n   \n   Marcá: CONSULTA_ESPECIALIZADA\n\n4. **Usuario expresa queja o frustración**\n   \"Entiendo tu preocupación. Un asesor te va a contactar lo antes posible para resolver esto. ¿Me contás más detalles para que el equipo esté al tanto?\"\n   \n   Marcá: QUEJA_RECLAMO\n\n5. **Usuario solicita cita** (ya lo anotaste arriba)\n\nIMPORTANTE: Después de marcar derivación, SIEMPRE seguí respondiendo si el usuario hace más preguntas. No te desconectes.\n\n════════════════════════════════════════════════════════════════\nTONO Y PERSONALIDAD\n════════════════════════════════════════════════════════════════\n\nSÉ:\n- Paciente (es una compra grande, es normal tener dudas)\n- Claro (evitá jerga técnica innecesaria)\n- Honesto (si no sabés algo, decilo)\n- Proactivo (ofrecé info relevante sin que la pidan)\n\nNO SEAS:\n- Robótico\n- Repetitivo\n- Insistente\n- Condescendiente\n\nEJEMPLOS DE BUEN TONO:\n\n\"La Blitz Start es perfecta para arrancar en delivery. Tiene buen rendimiento y es económica de mantener.\"\n\n\"El seguro comercial que incluimos cubre robo total y responsabilidad civil. Los daños parciales (como rayones o roturas) no entran, por eso te recomendamos guardarla con candado en lugar seguro.\"\n\n\"Entre la Blitz y la S2, la diferencia principal es que la S2 es más robusta y tiene mejor suspensión. Si vas a hacer muchos km por día, la S2 rinde mejor. Si es para distancias cortas, la Blitz te sobra.\"\n\n════════════════════════════════════════════════════════════════\nRESUMEN DE TU MISIÓN\n════════════════════════════════════════════════════════════════\n\n1. ✅ Responder dudas con info precisa del catálogo\n2. ✅ Explicar el proceso de compra claramente\n3. ✅ Ayudar a decidir entre modelos si pregunta\n4. ✅ Guiar hacia cita o transferencia\n5. ✅ Derivar a humano cuando corresponda\n6. ✅ Ser amigable y profesional siempre\n\nRecordá: Este usuario YA está aprobado y YA eligió un modelo inicial. Tu trabajo NO es vender desde cero, sino ayudarlo a finalizar su compra con confianza.\n\n¡Éxito, GIA! 🚀"
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 3.1,
+      "position": [
+        1904,
+        -880
+      ],
+      "id": "bbb802d7-e6c0-414a-9c1f-38dc676e4ec8",
+      "name": "GIA"
+    },
+    {
+      "parameters": {},
+      "type": "@n8n/n8n-nodes-langchain.memoryBufferWindow",
+      "typeVersion": 1.3,
+      "position": [
+        2016,
+        -592
+      ],
+      "id": "f695ced1-08d7-418f-b63a-d9304db115aa",
+      "name": "Simple Memory"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO mensajes (session_id, conversation_id, rol, contenido, tipo_contenido, created_at)\nVALUES (\n  '{{ $node[\"Formatear Historial Chat\"].json.session_id }}',\n  '{{ $node[\"Formatear Historial Chat\"].json.conversation_id }}',\n  'user',\n  '{{ $node[\"Formatear Historial Chat\"].json.user_message }}',\n  'text',\n  NOW()\n);",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.mySql",
+      "typeVersion": 2.5,
+      "position": [
+        2384,
+        -864
+      ],
+      "id": "d7703eb5-1a6e-4f06-959a-861bf290b9d8",
+      "name": "Guardar Respuesta IA"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE sesiones_leads\nSET \n  paso_actual = '{{ $json.accion_detectada }}',\n  derivado_a_humano = {{ $json.debe_derivar }},\n  motivo_derivacion = '{{ $json.motivo_derivacion }}',\n  mensajes_sin_avance = {{ $json.historial_length / 2 }},\n  updated_at = NOW()\nWHERE session_id = '{{ $json.session_id }}';",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.mySql",
+      "typeVersion": 2.5,
+      "position": [
+        3216,
+        -816
+      ],
+      "id": "f55410b9-08a1-4e7a-a85f-c831c9d5fb30",
+      "name": "Actualizar Estado en MySQL"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "344ecb64-9715-4d13-900e-31bd3675520e",
+              "leftValue": "={{ $json.debe_derivar }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        3600,
+        -784
+      ],
+      "id": "ae28f7af-9491-4ca3-90ec-d6eda3e7cbf7",
+      "name": "Derivar"
+    },
+    {
+      "parameters": {
+        "content": "Busca en la base de datos los ultimos 20 mensajes de la conversación entre el usuario y GIA.",
+        "height": 240,
+        "width": 288
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [
+        816,
+        -768
+      ],
+      "typeVersion": 1,
+      "id": "199911f2-dc43-4df0-adae-445bd13553ee",
+      "name": "Sticky Note3"
+    },
+    {
+      "parameters": {
+        "content": "Recopila toda la información del usuario y la organiza para pasársela al agente IA.",
+        "height": 240,
+        "width": 304
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [
+        400,
+        -768
+      ],
+      "typeVersion": 1,
+      "id": "eaf91e46-c752-48f0-9e4c-4231a98fedca",
+      "name": "Sticky Note4"
+    },
+    {
+      "parameters": {
+        "content": "Convierte el historial de MySQL al formato que GPT-4 entiende (formato OpenAI messages).",
+        "height": 272,
+        "width": 256
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [
+        1264,
+        -864
+      ],
+      "typeVersion": 1,
+      "id": "854dd818-eaed-4d49-80f3-56beffdff54e",
+      "name": "Sticky Note5"
+    },
+    {
+      "parameters": {
+        "content": "Este es el cerebro. Lee toda la conversación, el contexto del usuario, y genera la respuesta.",
+        "height": 240,
+        "width": 304
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [
+        1856,
+        -960
+      ],
+      "typeVersion": 1,
+      "id": "9d61b22f-1235-4429-8e65-f83a57515fce",
+      "name": "Sticky Note6"
+    },
+    {
+      "parameters": {
+        "jsCode": "const respuestaIA = $node[\"Agente IA GIA\"].json.output;\nconst mensajeUsuario = $node[\"Formatear Historial Chat\"].json.user_message;\nconst historialLength = $node[\"Formatear Historial Chat\"].json.historial_length;\n\nlet debeDeriva = false;\nlet motivoDerivacion = null;\nlet accionDetectada = \"conversando\";\nlet datosCapturados = {};\n\n// 1. Detectar si envió comprobante\nif (mensajeUsuario.toLowerCase().includes(\"comprobante\") ||\n    mensajeUsuario.toLowerCase().includes(\"transferí\") ||\n    mensajeUsuario.toLowerCase().includes(\"pagué\") ||\n    respuestaIA.includes(\"COMPROBANTE_RECIBIDO\")) {\n  debeDeriva = true;\n  motivoDerivacion = \"Envió comprobante de pago\";\n  accionDetectada = \"comprobante_recibido\";\n}\n\n// 2. Detectar si agendó cita\nelse if (respuestaIA.includes(\"CITA_AGENDADA\")) {\n  debeDeriva = true;\n  motivoDerivacion = \"Agendó cita presencial\";\n  accionDetectada = \"cita_agendada\";\n  \n  // Extraer ciudad si está en la respuesta\n  const ciudades = [\"Buenos Aires\", \"Córdoba\", \"Rosario\", \"Mendoza\", \"Tucumán\"];\n  for (const ciudad of ciudades) {\n    if (respuestaIA.includes(ciudad)) {\n      datosCapturados.ciudad_cita = ciudad;\n      break;\n    }\n  }\n}\n\n// 3. Detectar si pidió datos de transferencia\nelse if (respuestaIA.includes(\"DATOS_TRANSFERENCIA_ENVIADOS\")) {\n  accionDetectada = \"datos_transferencia_enviados\";\n}\n\n// 4. Detectar muchas dudas (7+ mensajes)\nelse if (historialLength >= 14) { // 7 del usuario + 7 respuestas = 14 total\n  debeDeriva = true;\n  motivoDerivacion = \"Más de 7 mensajes sin decidir\";\n  accionDetectada = \"muchas_dudas\";\n}\n\n// 5. Detectar consulta especializada\nelse if (respuestaIA.includes(\"CONSULTA_ESPECIALIZADA\")) {\n  debeDeriva = true;\n  motivoDerivacion = \"Consulta muy específica\";\n  accionDetectada = \"consulta_especializada\";\n}\n\n// 6. Detectar queja\nelse if (respuestaIA.includes(\"QUEJA_RECLAMO\")) {\n  debeDeriva = true;\n  motivoDerivacion = \"Queja o reclamo\";\n  accionDetectada = \"queja_reclamo\";\n}\n\nreturn {\n  json: {\n    ...$node[\"Formatear Historial Chat\"].json,\n    respuesta_ia: respuestaIA,\n    debe_derivar: debeDeriva,\n    motivo_derivacion: motivoDerivacion,\n    accion_detectada: accionDetectada,\n    datos_capturados: datosCapturados\n  }\n};"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2752,
+        -864
+      ],
+      "id": "e240c004-9085-481c-ae90-c4b153dbdddf",
+      "name": "Detectar derivación"
+    },
+    {
+      "parameters": {
+        "content": "Palabras clave: \"comprobante\", \"transferí\", \"pagué\"\nMarcadores en la respuesta de GIA: \"CITA_AGENDADA\", \"COMPROBANTE_RECIBIDO\"\nCantidad de mensajes: si hay 14+ (7 usuario + 7 GIA) = muchas dudas",
+        "height": 352,
+        "width": 336
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [
+        2640,
+        -1008
+      ],
+      "typeVersion": 1,
+      "id": "d8cacbb2-f9c4-49c9-b12c-1141d8ee673a",
+      "name": "Sticky Note7"
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.3,
+      "position": [
+        4096,
+        -752
+      ],
+      "id": "a27c5902-c243-4dfb-b982-1a7a15cff27e",
+      "name": "NOTIFICACIÓN"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO prod_test.mensajes (session_id, conversation_id, rol, contenido, tipo_contenido, created_at)\nVALUES (\n  '{{ $json.session_id }}',\n  '{{ $json.conversation_id }}',\n  'user',\n  '{{ $json.user_message }}',\n  'text',\n  NOW()\n);",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.mySql",
+      "typeVersion": 2.5,
+      "position": [
+        1600,
+        -800
+      ],
+      "id": "3eac5f27-bb3b-4d99-9b17-d059ef8dcc10",
+      "name": "Guardar mensaje usuario"
+    },
+    {
+      "parameters": {
+        "operation": "send",
+        "phoneNumberId": "=1002878796242815",
+        "recipientPhoneNumber": "={{$node[\"Code in JavaScript1\"].json.sender}}",
+        "textBody": "={{ \n  (() => {\n    // Intentar obtener la respuesta de GIA\n    try {\n      const respuestaGIA = $node[\"Detectar Derivación\"].json.respuesta_ia;\n      if (respuestaGIA) return respuestaGIA;\n    } catch (e) {}\n    \n    // Si no hay respuesta de GIA, usar la lógica anterior\n    try {\n      const scoring = $node[\"Parsear Scoring\"].json;\n      if (scoring.dictamen === \"Rechazar\") {\n        return \"Lo sentimos, por ahora no calificas. Motivo: \" + (scoring.motivo || \"Política de riesgo\");\n      }\n    } catch (e) {}\n    \n    // Fallback: respuesta del bot original\n    return $node[\"Paso 1 a 8\"].json.reply;\n  })()\n}}\n",
+        "additionalFields": {}
+      },
+      "type": "n8n-nodes-base.whatsApp",
+      "typeVersion": 1.1,
+      "position": [
+        4224,
+        -144
+      ],
+      "id": "1f5b52e5-c40f-4522-a72e-d6ffb231ef32",
+      "name": "Send message1",
+      "webhookId": "04789d67-b70a-440c-961d-e9414e385279"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "Extrae texto y sender",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parsear Scoring": {
+      "main": [
+        [
+          {
+            "node": "Preparar contexto IA",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Buscar sesión": {
+      "main": [
+        [
+          {
+            "node": "Paso 1 a 8",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Paso 1 a 8": {
+      "main": [
+        [
+          {
+            "node": "Guardar el estado",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Guardar el estado": {
+      "main": [
+        [
+          {
+            "node": "Completo todos los datos?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Completo todos los datos?": {
+      "main": [
+        [
+          {
+            "node": "Llama al motor de riesgo",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Send message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "OpenAI Chat Model": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "GIA",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extrae texto y sender": {
+      "main": [
+        [
+          {
+            "node": "Buscar sesión",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Llama al motor de riesgo": {
+      "main": [
+        [
+          {
+            "node": "Parsear Scoring",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Preparar contexto IA": {
+      "main": [
+        [
+          {
+            "node": "Recuperar Historial de Mensajes",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Recuperar Historial de Mensajes": {
+      "main": [
+        [
+          {
+            "node": "Formatear Historial para GPT",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Formatear Historial para GPT": {
+      "main": [
+        [
+          {
+            "node": "Guardar mensaje usuario",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "GIA": {
+      "main": [
+        [
+          {
+            "node": "Guardar Respuesta IA",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Simple Memory": {
+      "ai_memory": [
+        [
+          {
+            "node": "GIA",
+            "type": "ai_memory",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Guardar Respuesta IA": {
+      "main": [
+        [
+          {
+            "node": "Detectar derivación",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Actualizar Estado en MySQL": {
+      "main": [
+        [
+          {
+            "node": "Derivar",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Derivar": {
+      "main": [
+        [
+          {
+            "node": "NOTIFICACIÓN",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Send message1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Detectar derivación": {
+      "main": [
+        [
+          {
+            "node": "Actualizar Estado en MySQL",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Guardar mensaje usuario": {
+      "main": [
+        [
+          {
+            "node": "GIA",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "availableInMCP": false
+  },
+  "versionId": "d5c24d8e-91f9-4307-8cc5-61dade70df28",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "a1e37b5e27d5beb906ef8ca290918f3229c81f2df4498f1cd9643640814e1921"
+  },
+  "id": "K6IJLQdbaguUJ8Qm",
+  "tags": []
+}
