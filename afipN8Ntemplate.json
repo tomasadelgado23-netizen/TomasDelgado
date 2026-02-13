@@ -1,0 +1,524 @@
+{
+  "name": "Generar Facturas",
+  "nodes": [
+    {
+      "parameters": {
+        "sendTo": "={{$node[\"Google Sheets\"].json.email}}",
+        "subject": "Nombre de tu Empresa - Factura",
+        "message": "={{ $node[\"Google Sheets\"].json.customer_name }}, adjunto podrás encontrar tu factura. Muchas gracias por su compra. Cualquier duda estamos a disposición.",
+        "options": {
+          "appendAttribution": false,
+          "attachmentsUi": {
+            "attachmentsBinary": [
+              {
+                "property": "=data"
+              }
+            ]
+          }
+        }
+      },
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.1,
+      "position": [
+        2580,
+        1200
+      ],
+      "id": "95f39479-1312-40e3-9ffa-792cdc046bd1",
+      "name": "Gmail"
+    },
+    {
+      "parameters": {
+        "pollTimes": {
+          "item": [
+            {
+              "mode": "everyMinute"
+            }
+          ]
+        },
+        "triggerOn": "specificFolder",
+        "folderToWatch": {
+          "__rl": true,
+          "value": "1BPwv1IrJGkmgVugWudF_PCdKQZ5XDYkr",
+          "mode": "list",
+          "cachedResultName": "Ordenes de Compra",
+          "cachedResultUrl": "https://drive.google.com/drive/folders/1BPwv1IrJGkmgVugWudF_PCdKQZ5XDYkr"
+        },
+        "event": "fileCreated",
+        "options": {
+          "fileType": "all"
+        }
+      },
+      "id": "443f9103-3c9f-48e4-a877-9b2859e5af66",
+      "name": "Google Drive Trigger",
+      "type": "n8n-nodes-base.googleDriveTrigger",
+      "typeVersion": 1,
+      "position": [
+        0,
+        280
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://app.afipsdk.com/api/v1/afip/auth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {}
+          ]
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "environment",
+              "value": "dev"
+            },
+            {
+              "name": "tax_id",
+              "value": "20409378472"
+            },
+            {
+              "name": "wsid",
+              "value": "wsfe"
+            }
+          ]
+        },
+        "options": {
+          "redirect": {
+            "redirect": {}
+          }
+        }
+      },
+      "id": "e899ad9d-753a-4450-bef1-c6d37d0cfeca",
+      "name": "get_authorization",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        300,
+        280
+      ]
+    },
+    {
+      "parameters": {
+        "documentId": {
+          "__rl": true,
+          "value": "={{ $('Google Drive Trigger').item.json.id }}",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Sheet1",
+          "mode": "name"
+        },
+        "options": {}
+      },
+      "id": "f2ada41c-cb24-4f6f-a19f-a4a566a80134",
+      "name": "Google Sheets",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        300,
+        620
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://app.afipsdk.com/api/v1/afip/requests",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"environment\": \"dev\",\n  \"method\": \"FECompUltimoAutorizado\",\n  \"wsid\": \"wsfe\",\n  \"params\": {\n    \"Auth\": {\n      \"Token\": \"{{ $('get_authorization').item.json.token }}\",\n      \"Sign\": \"{{ $('get_authorization').item.json.sign }}\",\n      \"Cuit\": \"20409378472\"\n    },\n    \"PtoVta\": 1,\n    \"CbteTipo\": 11\n  }\n}",
+        "options": {
+          "redirect": {
+            "redirect": {}
+          }
+        }
+      },
+      "id": "8964f46b-0f4f-4ee9-8f10-cb04b352821a",
+      "name": "get_last_voucher_number",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        300,
+        1200
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://app.afipsdk.com/api/v1/afip/requests",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"environment\": \"dev\",\n  \"method\": \"FECAESolicitar\",\n  \"wsid\": \"wsfe\",\n  \"params\": {\n    \"Auth\": {\n      \"Token\": \"{{ $('get_authorization').item.json.token }}\",\n      \"Sign\": \"{{ $('get_authorization').item.json.sign }}\",\n      \"Cuit\": \"20409378472\"\n    },\n    \"FeCAEReq\": {\n      \"FeCabReq\": {\n        \"CantReg\": 1,\n        \"PtoVta\": 1,\n        \"CbteTipo\": 11\n      },\n      \"FeDetReq\": {\n        \"FECAEDetRequest\": {\n          \"Concepto\": 1,\n          \"DocTipo\": 80,\n          \"DocNro\": {{ $('Google Sheets').item.json.customer_cuit }},\n          \"CbteDesde\": {{ $json.FECompUltimoAutorizadoResult.CbteNro + 1}},\n          \"CbteHasta\": {{ $json.FECompUltimoAutorizadoResult.CbteNro + 1}},\n          \"CbteFch\": \"{{ new Date(Date.now() - ((new Date()).getTimezoneOffset() * 60000)).toISOString().split('T')[0].replace(/-/g, '') }}\",\n          \"FchServDesde\": null,\n          \"FchServHasta\": null,\n          \"FchVtoPago\": null,\n          \"ImpTotal\": {{ $('Google Sheets').item.json.subtotal }},\n          \"ImpTotConc\": 0,\n          \"ImpNeto\": {{ $('Google Sheets').item.json.subtotal }},\n          \"ImpOpEx\": 0,\n          \"ImpIVA\": 0,\n          \"ImpTrib\": 0,\n          \"MonId\": \"PES\",\n          \"MonCotiz\": 1,\n          \"CondicionIVAReceptorId\": 1\n        }\n      }\n    }\n  }\n}",
+        "options": {}
+      },
+      "id": "4069c0a8-d04c-4d1a-875c-fc9fa1218b63",
+      "name": "create_voucher",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        700,
+        1200
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Code1: turn N inputs into N outputs, each with its own qr_code_text\nreturn items.map(item => {\n  const det = item.json.FECAESolicitarResult.FeDetResp.FECAEDetResponse[0];\n  const QRCodeData = {\n    ver: 1,\n    fecha: det.CbteFch,\n    cuit: Number(item.json.customer_cuit),\n    ptoVta: Number(item.json.PtoVta),\n    tipoCmp: Number(item.json.CbteTipo),\n    nroCmp: Number(det.CbteDesde),\n    importe: Number(item.json.ImpTotal),\n    moneda: 'ARS',\n    ctz: 1,\n    tipoDocRec: Number(item.json.DocTipo),\n    nroDocRec: Number(item.json.customer_cuit),\n    tipoCodAut: 'E',\n    codAut: Number(det.CAE)\n  };\n  const QRCodeText = 'https://www.afip.gob.ar/fe/qr/?p=' + Buffer.from(JSON.stringify(QRCodeData)).toString('base64');\n  return { json: { ...item.json, qr_code_text: QRCodeText } };\n}"
+      },
+      "id": "ecd1d9c4-40fa-43c7-900a-fcb4bb57bcce",
+      "name": "Code",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1060,
+        1200
+      ]
+    },
+    {
+      "parameters": {
+        "html": "<!DOCTYPE html>\n<html>\n<head>\n  <meta charset=\"utf-8\"/>\n  <title>Factura</title>\n  <style type=\"text/css\">…</style>\n</head>\n<body>\n  <table class=\"bill-container\">…</table>\n</body>\n</html>\n"
+      },
+      "id": "f76ff544-b501-4e5a-9043-27be36787a80",
+      "name": "generate_html",
+      "type": "n8n-nodes-base.html",
+      "typeVersion": 1.2,
+      "position": [
+        1460,
+        1200
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://app.afipsdk.com/api/v1/pdfs",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"html\": {{ JSON.stringify($json.html) }},\n  \"file_name\": \"Factura-{{$json.order_number}}\",\n  \"options\": {\n    \"width\": 8,\n    \"marginLeft\": 0.4,\n    \"marginRight\": 0.4,\n    \"marginTop\": 0.4,\n    \"marginBottom\": 0.4\n  }\n}",
+        "options": {}
+      },
+      "id": "8bf5f0e3-bc30-40cc-96d9-043be3d848bc",
+      "name": "create_pdf",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1840,
+        1200
+      ]
+    },
+    {
+      "parameters": {
+        "url": "={{ $json.file }}",
+        "options": {}
+      },
+      "id": "324ad8ef-b8e1-41ae-806e-a2f33aa7915b",
+      "name": "download_pdf",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2220,
+        1200
+      ]
+    },
+    {
+      "parameters": {
+        "content": "## Trigger\nLo que inicia la automatización. \n\nPodria ser:\n\n• Nuevo spreadsheet (este caso)\n• Recibir un mail\n• Recibir un mensaje\n• etc",
+        "height": 380,
+        "width": 320,
+        "color": 4
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -160,
+        60
+      ],
+      "id": "d9b38b72-0fb5-4a90-b9f7-a7bb485c97dd",
+      "name": "Sticky Note"
+    },
+    {
+      "parameters": {
+        "content": "## Autenticacion en AFIP\n\nLlama a afipSDK para autorizar tu usuario/CUIT",
+        "height": 380,
+        "width": 320,
+        "color": 4
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        200,
+        60
+      ],
+      "id": "44d372e5-8e5a-445e-a433-c14955660999",
+      "name": "Sticky Note1"
+    },
+    {
+      "parameters": {
+        "content": "## Lee el Spreadsheet\n\nLee el nuevo spreadsheet en Drive, y recorre fila por fila.",
+        "height": 440,
+        "width": 320,
+        "color": 4
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        200,
+        580
+      ],
+      "id": "7e66816c-6fed-43e2-ba55-27dca028c354",
+      "name": "Sticky Note2"
+    },
+    {
+      "parameters": {
+        "content": "## Busca el numero de la ultima factura generada\n\nConsulta en AFIP cual fue el ultimo numero de factura generado. Para poder sumar +1 a la nueva factura.",
+        "height": 440,
+        "width": 320,
+        "color": 6
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        200,
+        1160
+      ],
+      "id": "a4618f07-9fd0-49b0-a3b0-66c9c19336c0",
+      "name": "Sticky Note3"
+    },
+    {
+      "parameters": {
+        "content": "## Genera la Factura en AFIP\n\nLlama a afipSDK con todos los datos de la orden de compra, para registrar la nueva factura en AFIP.",
+        "height": 440,
+        "width": 320,
+        "color": 6
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        580,
+        1160
+      ],
+      "id": "54ca2f51-c4ba-4345-8762-70390e5d06f2",
+      "name": "Sticky Note4"
+    },
+    {
+      "parameters": {
+        "content": "## Codigo para generar el QR\n\nEste QR aparecerá luego en el pdf de la factura.",
+        "height": 440,
+        "width": 320,
+        "color": 6
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        960,
+        1160
+      ],
+      "id": "317b0ff2-04c4-4a6d-b0cfebfad35c",
+      "name": "Sticky Note5"
+    },
+    {
+      "parameters": {
+        "content": "## Por cada fila del spreadsheet ->",
+        "color": 6
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -80,
+        1160
+      ],
+      "id": "ba8ecc69-3694-4ba1-af31-116477a1dcc2",
+      "name": "Sticky Note6"
+    },
+    {
+      "parameters": {
+        "content": "## Codigo HTML para diseñar la factura\n\nSe customiza el diseño de la factura. ej: logo personalizado.",
+        "height": 440,
+        "width": 320,
+        "color": 6
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        1340,
+        1160
+      ],
+      "id": "46f39c12-a70c-42a7-8182-14261f9a3c50",
+      "name": "Sticky Note7"
+    },
+    {
+      "parameters": {
+        "content": "## Se crea el PDF de la factura\n\nSe llama a afipSDK para generar la factura con el diseño y la informacion correspondiente.",
+        "height": 440,
+        "width": 320,
+        "color": 6
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        1720,
+        1160
+      ],
+      "id": "3e491886-600d-42f3-abdd-82e79b6c22a4",
+      "name": "Sticky Note8"
+    },
+    {
+      "parameters": {
+        "content": "## Descarga el PDF de la factura",
+        "height": 440,
+        "width": 320,
+        "color": 6
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        2100,
+        1160
+      ],
+      "id": "4cb49e41-fd4a-4165-929d-36c8802f9258",
+      "name": "Sticky Note9"
+    },
+    {
+      "parameters": {
+        "content": "## Envia la factura por mail al cliente\n\nToma el mail y nombre del cliente del spreadsheet que origina el trigger. Y envia un mensaje personalizado.",
+        "height": 440,
+        "width": 320,
+        "color": 6
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        2480,
+        1160
+      ],
+      "id": "c0c7597b-432c-4d6a-a946-0de8f4a6ffae",
+      "name": "Sticky Note10"
+    },
+    {
+      "parameters": {
+        "content": "## Alternativas\n\nSe pueden agregar mas nodos a la automatizacion, dependiendo del flujo de trabajo de cada empresa:\n\n• Actualizar una planilla con el estado de cada factura\n\n• Enviar un mensaje al equipo de contabilidad\n\n• Actualizar un dashboard para visualizar el estado de  cada factura\n\n• etc\n",
+        "height": 400,
+        "color": 6
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        2560,
+        1660
+      ],
+      "id": "70b372f0-0e89-42c8-b323-5eb664a1ed0b",
+      "name": "Sticky Note11"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Google Drive Trigger": {
+      "main": [
+        [
+          {
+            "node": "get_authorization",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "get_authorization": {
+      "main": [
+        [
+          {
+            "node": "Google Sheets",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Google Sheets": {
+      "main": [
+        [
+          {
+            "node": "get_last_voucher_number",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "get_last_voucher_number": {
+      "main": [
+        [
+          {
+            "node": "create_voucher",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "create_voucher": {
+      "main": [
+        [
+          {
+            "node": "Code",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code": {
+      "main": [
+        [
+          {
+            "node": "generate_html",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "generate_html": {
+      "main": [
+        [
+          {
+            "node": "create_pdf",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "create_pdf": {
+      "main": [
+        [
+          {
+            "node": "download_pdf",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "download_pdf": {
+      "main": [
+        [
+          {
+            "node": "Gmail",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "id": "9DUPfnbSUKgxXyp5",
+  "meta": {
+    "templateCredsSetupCompleted": true
+  },
+  "tags": []
+}

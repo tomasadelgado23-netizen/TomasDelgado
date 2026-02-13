@@ -1,0 +1,877 @@
+{
+  "name": "Pre-enrega",
+  "nodes": [
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "1cd504d4-e664-4d5d-bf60-726bb861f32b",
+              "name": "condition",
+              "value": "={{ $json.weather[0].main }}",
+              "type": "string"
+            },
+            {
+              "id": "e3e7b797-f7e7-4821-b205-1075205ca077",
+              "name": "description",
+              "value": "={{ $json.weather[0].description }}",
+              "type": "string"
+            },
+            {
+              "id": "aefa098d-c1ed-4c24-bb88-41c00b8b0f81",
+              "name": "temp",
+              "value": "={{ $json.main.temp }}",
+              "type": "number"
+            },
+            {
+              "id": "5ec2d622-789e-47e7-af39-742e36535e1b",
+              "name": "tempMax",
+              "value": "={{ $json.main.temp_max }}",
+              "type": "number"
+            },
+            {
+              "id": "f9095d3d-024a-4678-a9db-80afafeffbb0",
+              "name": "tempMin",
+              "value": "={{ $json.main.temp_min }}",
+              "type": "number"
+            },
+            {
+              "id": "7a1911ef-3440-49d4-9237-b74337ef6503",
+              "name": "humidity",
+              "value": "={{ $json.main.humidity }}",
+              "type": "number"
+            },
+            {
+              "id": "007a7280-c427-4838-a256-aa0801ec6b01",
+              "name": "city",
+              "value": "={{ $json.name }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        -1840,
+        784
+      ],
+      "id": "df009717-5d87-483f-8fef-1a87def0dda3",
+      "name": "Extraer datos clima"
+    },
+    {
+      "parameters": {
+        "url": "https://api.openweathermap.org/data/2.5/weather?q=Villa%20Carlos%20Paz,AR&units=metric&lang=es",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpQueryAuth",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -2592,
+        800
+      ],
+      "id": "66d0280c-b005-4ea4-ae25-6603afa66cba",
+      "name": "API clima",
+      "retryOnFail": true,
+      "credentials": {
+        "httpQueryAuth": {
+          "id": "Y71ULSFeOBFrxXqM",
+          "name": "OpenWeatherMap API"
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "36745a80-b007-4c47-82e9-a35fa45647c8",
+              "leftValue": "={{ $json.condition }}",
+              "rightValue": "=Rain",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            },
+            {
+              "id": "90245fa4-353c-459d-b281-ef92d0b3e72a",
+              "leftValue": "={{ $json.condition }}",
+              "rightValue": "Drizzle",
+              "operator": {
+                "type": "string",
+                "operation": "equals",
+                "name": "filter.operator.equals"
+              }
+            },
+            {
+              "id": "6e3888f6-de12-40dd-a71f-342f7392d422",
+              "leftValue": "={{ $json.condition }}",
+              "rightValue": "Thunderstorm",
+              "operator": {
+                "type": "string",
+                "operation": "equals",
+                "name": "filter.operator.equals"
+              }
+            },
+            {
+              "id": "4d9d95bc-485b-4e52-ad95-520f33eff70b",
+              "leftValue": "={{ $json.tempMax }}",
+              "rightValue": 34,
+              "operator": {
+                "type": "number",
+                "operation": "gt"
+              }
+            },
+            {
+              "id": "6e1f8bb8-a0bc-4cb0-923d-ae9e533ff630",
+              "leftValue": "={{ $json.tempMin }}",
+              "rightValue": 5,
+              "operator": {
+                "type": "number",
+                "operation": "lt"
+              }
+            }
+          ],
+          "combinator": "or"
+        },
+        "looseTypeValidation": true,
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        -1328,
+        848
+      ],
+      "id": "9c87da84-a874-42da-b914-ee2433588216",
+      "name": "Hay alerta?"
+    },
+    {
+      "parameters": {
+        "content": "## NODO ALERTA\nAvisa si hay alerta con respecto a LLUVIAS, TORMENTAS o temperaturas mas altas de 30 grados  o mas bajas de 5 grados que haya durante el dia",
+        "height": 288,
+        "width": 304
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [
+        -1424,
+        704
+      ],
+      "typeVersion": 1,
+      "id": "6f5cd805-da34-4dbc-9654-beefc914d3f3",
+      "name": "Sticky Note"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "8dc5c3e8-58e2-4d0c-a37a-f8a4c4abf8f4",
+              "name": "emailSubject",
+              "value": "Clima del día - Villa Carlos Paz",
+              "type": "string"
+            },
+            {
+              "id": "4823be00-9cd1-4908-b326-ea0974589300",
+              "name": "emailBody",
+              "value": "=Buen Dia Tomi, este es el diagnostico del clima. Ojala tengas un excelente dia.\n✅ Clima agradable en {{ $json.city }}\n\nDIAGNÓSTICO DEL DÍA:\n━━━━━━━━━━━━━━━━━━━━━━\n🌡️ Temperatura actual: {{ $json.temp }}°C\n📈 Máxima: {{ $json.tempMax }}°C\n📉 Mínima: {{ $json.tempMin }}°C\n💧 Humedad: {{ $json.humidity }}%\n☁️ Condición: {{ $json.description }}\n\n¡Que tengas un buen día! ",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        -544,
+        1008
+      ],
+      "id": "4b3e1d39-47b0-4ad7-963b-1e3409d3fa9f",
+      "name": "Mensaje Clima Normal"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "fe6c309d-3441-4907-b099-565d68585619",
+              "name": "emailSubject",
+              "value": "⛈️ ALERTA TORMENTA - Villa Carlos Paz",
+              "type": "string"
+            },
+            {
+              "id": "1ce2b121-db53-40b0-9f5a-6b4327614547",
+              "name": "emailBody",
+              "value": "=⛈️ ALERTA: TORMENTA en {{ $json.city }}\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n Evitá salir si es posible\n Desconectá equipos electrónicos\n\n📊 DIAGNÓSTICO DEL DÍA:\n━━━━━━━━━━━━━━━━━━━━━━\n🌡️ Temperatura actual: {{ $json.temp }}°C\n📈 Máxima: {{ $json.tempMax }}°C\n📉 Mínima: {{ $json.tempMin }}°C\n💧 Humedad: {{ $json.humidity }}%\n☁️ Condición: {{ $json.description }}\n\nCuidate! ",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        -192,
+        112
+      ],
+      "id": "3635b628-0c13-4304-94f0-76f543e7d22d",
+      "name": "Mensaje Tormenta"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "fe6c309d-3441-4907-b099-565d68585619",
+              "name": "emailSubject",
+              "value": "⛈️ ALERTA LLUVIA - Villa Carlos Paz",
+              "type": "string"
+            },
+            {
+              "id": "1ce2b121-db53-40b0-9f5a-6b4327614547",
+              "name": "emailBody",
+              "value": "=⛈️ ALERTA: LLUVIA en {{ $json.city }}\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n🌂 Llevar paraguas\n🚗 Cancela planes al aire libre\n\n📊 DIAGNÓSTICO DEL DÍA:\n━━━━━━━━━━━━━━━━━━━━━━\n🌡️ Temperatura actual: {{ $json.temp }}°C\n📈 Máxima: {{ $json.tempMax }}°C\n📉 Mínima: {{ $json.tempMin }}°C\n💧 Humedad: {{ $json.humidity }}%\n☁️ Condición: {{ $json.description }}\n\nCuidate! 🙏",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        -192,
+        288
+      ],
+      "id": "21cc779a-d54f-46c9-8ef6-4e19d6ad825d",
+      "name": "Mensaje Lluvia"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "fe6c309d-3441-4907-b099-565d68585619",
+              "name": "emailSubject",
+              "value": "ALERTA ☀️ CALOR ☀️- Villa Carlos Paz ",
+              "type": "string"
+            },
+            {
+              "id": "1ce2b121-db53-40b0-9f5a-6b4327614547",
+              "name": "emailBody",
+              "value": "=☀️ ALERTA: CALOR en {{ $json.city }}\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n💧Hidratate bien \n🔥Evita el sol entre 11-16 hs\n🏖️ Anda al rio!!\n\n📊 DIAGNÓSTICO DEL DÍA:\n━━━━━━━━━━━━━━━━━━━━━━\n🌡️ Temperatura actual: {{ $json.temp }}°C\n📈 Máxima: {{ $json.tempMax }}°C\n📉 Mínima: {{ $json.tempMin }}°C\n💧 Humedad: {{ $json.humidity }}%\n☁️ Condición: {{ $json.description }}\n\nCuidate, y aprovecha a tomarte ese fernet!",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        -192,
+        448
+      ],
+      "id": "316e173b-2447-4210-af5e-cd0ebaafd4cc",
+      "name": "Mensaje Calor"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "fe6c309d-3441-4907-b099-565d68585619",
+              "name": "emailSubject",
+              "value": "ALERTA  ❄️🧊🥶FRIO❄️🧊🥶 - Villa Carlos Paz ",
+              "type": "string"
+            },
+            {
+              "id": "1ce2b121-db53-40b0-9f5a-6b4327614547",
+              "name": "emailBody",
+              "value": "=❄️🧊🥶 ALERTA: FRIO en {{ $json.city }}\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n🧥 Abrígate bien\n🧣 Llevá campera abrigada (no te olvides)\n☕ Cuidado con la nieve !!!!\n📊 DIAGNÓSTICO DEL DÍA:\n━━━━━━━━━━━━━━━━━━━━━━\n🌡️ Temperatura actual: {{ $json.temp }}°C\n📈 Máxima: {{ $json.tempMax }}°C\n📉 Mínima: {{ $json.tempMin }}°C\n💧 Humedad: {{ $json.humidity }}%\n☁️ Condición: {{ $json.description }}\n\nQuedate en casa, pedi hacer HOME en el trabajo.",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        -192,
+        624
+      ],
+      "id": "8b03b766-bd18-46e0-9e42-5822862a6c4f",
+      "name": "Mensaje Frio"
+    },
+    {
+      "parameters": {
+        "content": "## NODO PERSONALIZAR\nPersonaliza el aviso al mail, indicando si es tormenta, lluvia, calor o frio, para tener informacion detallada del clima y con recomendaciones prácticas. Ademas manda el diagnostico de temperatura, humedad, temp max y temp min y la condición\nAclaración: Lluvia y llovizna se toma el mismo mensaje.",
+        "height": 416,
+        "width": 384,
+        "color": 6
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [
+        -704,
+        192
+      ],
+      "typeVersion": 1,
+      "id": "3c9a7fbb-37d7-4044-abac-359d23b0cf3f",
+      "name": "Sticky Note1"
+    },
+    {
+      "parameters": {
+        "sendTo": "tomasadelgado23@gmail.com",
+        "subject": "={{ $json.emailSubject }}",
+        "emailType": "text",
+        "message": "={{ $json.emailBody }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.2,
+      "position": [
+        144,
+        352
+      ],
+      "id": "b911c90e-5294-4273-afa2-a7eb6a3e21ab",
+      "name": "Enviar Email",
+      "webhookId": "80a185f6-6578-497a-ab5d-799814ffa311",
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "GwrUN5FIeHILUBin",
+          "name": "Gmail account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "2ddbe8ca-c0dc-4423-a297-6f6b8e6d7ed5",
+              "leftValue": "={{ $json.main }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "notEmpty",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "looseTypeValidation": true,
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        -2160,
+        800
+      ],
+      "id": "7f82acc6-4522-40f7-be73-ba02888e45a0",
+      "name": "API respondió correctamente?"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "dc86f9e0-9e6c-4b0c-bb37-f16032c80c45",
+              "name": "errorMessage",
+              "value": "={{ $json.error.message }}",
+              "type": "string"
+            },
+            {
+              "id": "4085de65-e7ee-43da-82e6-d10b94bfd930",
+              "name": "timestamp",
+              "value": "={{ $now }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        -1840,
+        1472
+      ],
+      "id": "1ec21530-ac58-4344-bfd9-7b5731ca523d",
+      "name": "LOG error"
+    },
+    {
+      "parameters": {
+        "sendTo": "tomasadelgado23@gmail.com",
+        "subject": "ERROR DE LA API DE WEATHER",
+        "emailType": "text",
+        "message": "=La API esta fallando. En este horario:  {{ $json.timestamp }}. El error es: {{ $json.errorMessage }}",
+        "options": {
+          "appendAttribution": false
+        }
+      },
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.2,
+      "position": [
+        208,
+        1536
+      ],
+      "id": "181421d0-a8ee-4b73-98d5-05038f92cf85",
+      "name": "Mandar Email del error",
+      "webhookId": "b7f75512-eb01-42b7-9c3b-bb8cdbab0ece",
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "GwrUN5FIeHILUBin",
+          "name": "Gmail account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "triggerAtHour": 8
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        -2960,
+        800
+      ],
+      "id": "1f8c121a-888d-4910-bc2b-452a5a4cbbac",
+      "name": "Disparador de informacion de clima a las 8 AM, todos los dias"
+    },
+    {
+      "parameters": {
+        "content": "## NODO DE LOG \nIndica que tipo de error se esta obteniendo de la API y el horario",
+        "height": 256,
+        "width": 272,
+        "color": 4
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [
+        -1920,
+        1376
+      ],
+      "typeVersion": 1,
+      "id": "d54ada47-d24c-4105-8389-7bb0719381cb",
+      "name": "Sticky Note2"
+    },
+    {
+      "parameters": {
+        "content": "## NODO DIAGNOSTICO DIARIO\nEn el caso de que no haya tormentas, lluvia, mucho frio o mucho calor, manda un diagnostico diario de temperatura, temperatura minima y maxima,  humedad y la condición",
+        "height": 288,
+        "width": 368
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [
+        -672,
+        880
+      ],
+      "typeVersion": 1,
+      "id": "4fca1c0b-c894-4e33-be29-1de351500ae1",
+      "name": "Sticky Note3"
+    },
+    {
+      "parameters": {
+        "content": "## NODO DE API\nConexión con la API de openweathermap. \nAclaración: Es una API gratuita, pero requiere registro en la pagina, por eso la autenticación",
+        "height": 304,
+        "width": 336,
+        "color": 5
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [
+        -2704,
+        688
+      ],
+      "typeVersion": 1,
+      "id": "621d17b3-795c-4aa6-9152-427f861269ed",
+      "name": "Sticky Note4"
+    },
+    {
+      "parameters": {
+        "sendTo": "tomasadelgado23@gmail.com",
+        "subject": "={{ $json.emailSubject }}",
+        "emailType": "text",
+        "message": "={{ $json.emailBody }}",
+        "options": {
+          "appendAttribution": false,
+          "senderName": ""
+        }
+      },
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.2,
+      "position": [
+        176,
+        1056
+      ],
+      "id": "a4f52d38-4d9b-43aa-8bf1-6a28905857cd",
+      "name": "Enviar Email1",
+      "webhookId": "bfeb67d1-b393-434a-9c68-9c2d0f262824",
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "GwrUN5FIeHILUBin",
+          "name": "Gmail account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "loose",
+                  "version": 3
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.condition }}",
+                    "rightValue": "=Thunderstorm",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    },
+                    "id": "4b40599d-e6c6-4ed1-ad32-51a7f759b751"
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "Tormenta"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "loose",
+                  "version": 3
+                },
+                "conditions": [
+                  {
+                    "id": "bd3ed384-15a7-41f1-af46-1afaabb1ba1b",
+                    "leftValue": "={{ $json.condition }}",
+                    "rightValue": "=Rain",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals",
+                      "name": "filter.operator.equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "Lluvia"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "loose",
+                  "version": 3
+                },
+                "conditions": [
+                  {
+                    "id": "c1a8b9ba-0c71-4798-a869-9247199eefda",
+                    "leftValue": "={{ $json.condition }}",
+                    "rightValue": "=Drizzle",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals",
+                      "name": "filter.operator.equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "Llovizna"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "loose",
+                  "version": 3
+                },
+                "conditions": [
+                  {
+                    "id": "6f69ee7d-51bf-4b9c-9d6d-3468cc87a00f",
+                    "leftValue": "={{ $json.temp }}",
+                    "rightValue": 30,
+                    "operator": {
+                      "type": "number",
+                      "operation": "gt"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "Calor"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "loose",
+                  "version": 3
+                },
+                "conditions": [
+                  {
+                    "id": "6ca391a8-05fd-48dc-ba2d-081986b477d8",
+                    "leftValue": "={{ $json.temp }}",
+                    "rightValue": 5,
+                    "operator": {
+                      "type": "number",
+                      "operation": "lt"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "Frio"
+            }
+          ]
+        },
+        "looseTypeValidation": true,
+        "options": {}
+      },
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.4,
+      "position": [
+        -576,
+        368
+      ],
+      "id": "5a292dca-a524-4416-ab9c-9e26ccc93ab8",
+      "name": "Tipo de alerta"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Extraer datos clima": {
+      "main": [
+        [
+          {
+            "node": "Hay alerta?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "API clima": {
+      "main": [
+        [
+          {
+            "node": "API respondió correctamente?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Hay alerta?": {
+      "main": [
+        [
+          {
+            "node": "Tipo de alerta",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Mensaje Clima Normal",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Mensaje Tormenta": {
+      "main": [
+        [
+          {
+            "node": "Enviar Email",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Mensaje Lluvia": {
+      "main": [
+        [
+          {
+            "node": "Enviar Email",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Mensaje Calor": {
+      "main": [
+        [
+          {
+            "node": "Enviar Email",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Mensaje Frio": {
+      "main": [
+        [
+          {
+            "node": "Enviar Email",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Mensaje Clima Normal": {
+      "main": [
+        [
+          {
+            "node": "Enviar Email1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "API respondió correctamente?": {
+      "main": [
+        [
+          {
+            "node": "Extraer datos clima",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "LOG error",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "LOG error": {
+      "main": [
+        [
+          {
+            "node": "Mandar Email del error",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Disparador de informacion de clima a las 8 AM, todos los dias": {
+      "main": [
+        [
+          {
+            "node": "API clima",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Enviar Email1": {
+      "main": [
+        []
+      ]
+    },
+    "Tipo de alerta": {
+      "main": [
+        [
+          {
+            "node": "Mensaje Tormenta",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Mensaje Lluvia",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Mensaje Lluvia",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Mensaje Calor",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Mensaje Frio",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "availableInMCP": false
+  },
+  "versionId": "d327f321-d578-4a06-b571-5b8cf0f54955",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "5f553f3f60c8152c337339bee9cfd0e7243edfcde8f480b867e48d541867a4bb"
+  },
+  "id": "np0iBiW4-RvOu56atmXMi",
+  "tags": []
+}
